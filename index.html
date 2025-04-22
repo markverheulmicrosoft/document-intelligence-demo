@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document Extractor</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            padding: 15px;
+        }
+
+        #top-controls {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding-bottom: 15px;
+            border-bottom: 1px solid #eee;
+        }
+
+        #main-content {
+            display: flex;
+            gap: 20px;
+            width: 100%;
+        }
+
+        #results-area {
+            width: 40%;
+        }
+
+        #pdf-viewer-area {
+            width: 60%;
+            border: 1px solid #ccc;
+            position: relative;
+            /* Needed for absolute positioning of highlights */
+        }
+
+        #pdfCanvas {
+            width: 100%;
+        }
+
+        .highlight {
+            position: absolute;
+            border: 2px solid red;
+            background-color: rgba(255, 0, 0, 0.2);
+            pointer-events: none;
+            /* Allows interaction with underlying canvas */
+        }
+
+        /* Styles for formatted results */
+        .result-document {
+            border: 1px solid #ddd;
+            padding: 10px;
+            margin-bottom: 10px;
+            border-radius: 5px;
+            background-color: #f9f9f9;
+        }
+
+        .result-field {
+            margin-bottom: 8px;
+            padding-left: 15px;
+            border-left: 3px solid #007bff;
+        }
+
+        .field-name {
+            font-weight: bold;
+        }
+
+        .field-value {
+            color: #333;
+        }
+
+        .field-confidence {
+            font-size: 0.9em;
+            color: #666;
+        }
+
+        .field-location {
+            font-size: 0.8em;
+            color: #888;
+            cursor: pointer;
+            text-decoration: underline;
+        }
+
+        .field-location:hover {
+            color: #0056b3;
+        }
+    </style>
+    <!-- PDF.js library from CDN -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script>
+        // Required configuration for PDF.js worker
+        pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js`;
+    </script>
+</head>
+
+<body>
+
+    <div id="top-controls">
+        <label for="fileInput">Select Document:</label>
+        <input type="file" id="fileInput" accept=".pdf">
+        <button id="analyzeButton">Analyze Document</button>
+        <span id="status">Select a PDF file and click Analyze.</span>
+    </div>
+
+    <div id="main-content">
+        <div id="results-area">
+            <h2>Extracted Data</h2>
+            <div id="extractedDataContainer">No data yet.</div> <!-- Changed from pre -->
+        </div>
+
+        <div id="pdf-viewer-area">
+            <h2>PDF Preview</h2>
+            <div id="pdfViewerContainer" style="position: relative;">
+                <canvas id="pdfCanvas"></canvas>
+                <!-- Highlights will be added here dynamically -->
+            </div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+
+</html>
