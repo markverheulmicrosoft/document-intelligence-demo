@@ -15,7 +15,7 @@ let currentPageNum = 1; // Start with page 1
 let pageRendering = false;
 let pageNumPending = null;
 const scale = 1.5; // Adjust scale for rendering quality/size
-let dummyAnalysisResult = null; // Store result to redraw highlights on page change
+let currentAnalysisResult = null; // Store the actual result from the backend
 let highlightAfterRender = null; // Store polygon data for highlighting after page render
 
 /**
@@ -84,7 +84,7 @@ async function loadAndRenderPdf(fileObject, fileName) {
     statusDiv.textContent = 'Loading PDF...';
     extractedDataContainer.innerHTML = 'No data yet.'; // Clear formatted results
     clearHighlights(); // Clear highlights
-    dummyAnalysisResult = null; // Reset analysis result
+    currentAnalysisResult = null; // Reset actual analysis result
     highlightAfterRender = null; // Clear pending highlight request
 
     const fileReader = new FileReader();
@@ -144,15 +144,46 @@ fileInput.addEventListener('change', async (event) => {
     loadAndRenderPdf(file, file.name); // Load the newly selected file
 });
 
-// Analyze button remains the same
-analyzeButton.addEventListener('click', () => {
+// Analyze button - Calls the backend API
+analyzeButton.addEventListener('click', async () => {
     if (!currentFile) {
         statusDiv.textContent = 'Please select or load a PDF file first.';
         return;
     }
-    // In a real app, you would send 'currentFile' (which could be a File or Blob)
-    // to your backend here using FormData and fetch()
-    simulateBackendAnalysis(currentFile);
+
+    statusDiv.textContent = 'Analyzing document (calling backend)...';
+    extractedDataContainer.innerHTML = 'Analyzing...';
+    clearHighlights();
+    currentAnalysisResult = null; // Clear previous results
+    highlightAfterRender = null;
+
+    const formData = new FormData();
+    formData.append('document', currentFile, currentFile.name || 'uploaded_document.pdf');
+
+    try {
+        // Call the Flask backend endpoint
+        const response = await fetch('http://localhost:5000/analyze', {
+            method: 'POST',
+            body: formData,
+        });
+
+        const resultData = await response.json();
+
+        if (!response.ok) {
+            // Handle errors returned from the backend
+            throw new Error(resultData.error || `HTTP error! status: ${response.status}`);
+        }
+
+        currentAnalysisResult = resultData; // Store the actual result
+        statusDiv.textContent = 'Analysis complete. Click location to highlight.';
+        displayFormattedResults(currentAnalysisResult);
+
+    } catch (error) {
+        console.error('Error calling analysis backend:', error);
+        statusDiv.textContent = `Analysis failed: ${error.message}`;
+        extractedDataContainer.innerHTML = `Error during analysis: ${error.message}`;
+        currentAnalysisResult = null; // Ensure no partial results are stored
+    }
 });
 
 /**
@@ -362,53 +393,6 @@ function drawSpecificHighlight(polygon, pageNum) {
     }).catch(error => {
         console.error("Error getting page for specific highlighting:", error);
     });
-}
-
-// --- SIMULATED BACKEND INTERACTION ---
-
-async function simulateBackendAnalysis(file) {
-    statusDiv.textContent = 'Analyzing document (simulation)...';
-    extractedDataContainer.innerHTML = 'Analyzing...'; // Show analyzing state
-    clearHighlights(); // Clear highlights during analysis
-    highlightAfterRender = null; // Clear pending highlight request
-
-    await new Promise(resolve => setTimeout(resolve, 1500));
-
-    // --- Dummy Data (Using coordinates from your input2.pdf example) ---
-    dummyAnalysisResult = {
-        documents: [
-            {
-                docType: "invoice",
-                confidence: 1.00,
-                fields: {
-                    "InvoiceDate": {
-                        content: "30 januari 2025",
-                        confidence: 0.806,
-                        boundingRegions: [{ pageNumber: 1, polygon: [6.6034, 0.6427, 7.3387, 0.6391, 7.3393, 0.7609, 6.604, 0.7644] }]
-                    },
-                    "InvoiceTotal": {
-                        content: "£ 24,32",
-                        confidence: 0.771,
-                        boundingRegions: [{ pageNumber: 1, polygon: [6.8308, 2.0152, 7.3401, 2.02, 7.3387, 2.1777, 6.8294, 2.1729] }]
-                    },
-                     "VendorName": {
-                        content: "Uber",
-                        confidence: 0.568,
-                        boundingRegions: [{ pageNumber: 1, polygon: [0.9024, 0.541, 1.5077, 0.5443, 1.5077, 0.8051, 0.9012, 0.7995] }]
-                    }
-                    // Add more dummy fields corresponding to your needs
-                }
-            }
-        ]
-        // Include key_value_pairs if using layout model
-        // key_value_pairs: [ { key: {...}, value: { content: "...", boundingRegions: [...] } } ]
-    };
-    // --- End Dummy Data ---
-
-    statusDiv.textContent = 'Analysis complete (simulation). Click location to highlight.';
-    displayFormattedResults(dummyAnalysisResult); // Display the formatted results
-
-    // No automatic highlighting after analysis - user must click
 }
 
 // TODO: Add basic pagination controls (optional)
