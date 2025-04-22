@@ -218,60 +218,92 @@ function clearHighlights() {
 
 /**
  * Handles clicks on field values to highlight the location on the PDF canvas.
- * @param {Array} boundingRegions The bounding regions from the analysis result.
+ * @param {Array} boundingRegions The bounding regions from the analysis result for a specific field.
  */
 function handleLocationClick(boundingRegions) {
-    if (!currentPdfDoc || !boundingRegions || boundingRegions.length === 0) {
-        console.warn("Cannot highlight: PDF not loaded or no bounding regions.");
+    console.log("--- handleLocationClick Start ---");
+    console.log(`Current page number viewed: ${currentPageNum}`);
+
+    if (!pdfDoc) { console.error("Highlight Error: pdfDoc object is not available."); return; }
+    if (!canvas || !ctx) { console.error("Highlight Error: Canvas or 2D context is not ready."); return; }
+    if (!boundingRegions || boundingRegions.length === 0) {
+        // This case should ideally be prevented by the check in displayFormattedResults, but good to have.
+        console.warn("Highlight Warning: handleLocationClick called with empty or null boundingRegions.");
         return;
     }
 
-    // Assuming the first region corresponds to the current view,
-    // or find the region matching currentPageNum if multiple pages are possible.
-    const region = boundingRegions.find(r => r.pageNumber === currentPageNum);
+    // Log the received boundingRegions for this specific field
+    console.log("Bounding regions received for this field:", JSON.stringify(boundingRegions, null, 2));
 
-    if (!region || !region.polygon || region.polygon.length === 0) {
-        console.warn("No bounding region found for the current page or region has no polygon.");
+    // Attempt to find the region for the currently viewed page
+    const region = boundingRegions.find(r => r.page_number === currentPageNum);
+
+    if (!region) {
+        // This is the first part of the warning message condition
+        console.warn(`Highlight Warning: No bounding region found where page_number === ${currentPageNum}.`);
+        // Log available page numbers in the received regions for comparison
+        const availablePages = boundingRegions.map(r => r.page_number);
+        console.log(`Available page numbers in these regions: [${availablePages.join(', ')}]`);
+        console.log("--- handleLocationClick End (No Region Found) ---");
+        return; // Stop execution
+    }
+
+    // If we get here, a region for the current page *was* found.
+    console.log(`Highlight Info: Found region for page ${currentPageNum}:`, JSON.stringify(region, null, 2));
+
+    // Now check the second part of the warning message condition: does the found region have a valid polygon?
+    if (!region.polygon || region.polygon.length === 0) {
+        console.warn(`Highlight Warning: Region found for page ${currentPageNum}, but it has no polygon data or polygon is empty.`);
+        console.log("--- handleLocationClick End (Missing Polygon) ---");
+        return; // Stop execution
+    }
+
+    // If we get here, we have a region for the current page AND it has polygon data.
+    const polygon = region.polygon;
+    console.log("Highlight Info: Valid polygon found:", polygon);
+
+    // Check polygon integrity (basic)
+    if (polygon.length < 8 || polygon.length % 2 !== 0) {
+        console.warn("Highlight Warning: Polygon data seems invalid (less than 4 points or odd number of coordinates):", polygon);
+        console.log("--- handleLocationClick End (Invalid Polygon) ---");
         return;
     }
 
-    // Re-render the current page first to clear previous highlights
+    // --- Proceed with rendering and drawing ---
+    console.log("Highlight Info: Proceeding to re-render page and draw highlight...");
     renderPage(currentPageNum).then(() => {
-        // Get the current page object again after re-rendering
-        currentPdfDoc.getPage(currentPageNum).then(page => {
-            const viewport = page.getViewport({ scale: scale }); // Use the same scale as renderPage
-            const polygon = region.polygon; // Array of numbers [x1, y1, x2, y2, ...]
+        console.log("Highlight Info: Page re-rendered. Getting page object...");
+        pdfDoc.getPage(currentPageNum).then(page => {
+            const scale = 1.5; // Ensure this matches renderPage scale
+            const viewport = page.getViewport({ scale: scale });
+            console.log("Highlight Info: Viewport obtained. Drawing polygon...");
 
-            if (polygon.length < 8) { // Need at least 4 points (8 numbers) for a box
-                console.warn("Polygon data is insufficient to draw a box:", polygon);
-                return;
-            }
-
-            console.log(`Highlighting on page ${currentPageNum}, Polygon:`, polygon); // Debug log
-
-            // --- Drawing the Highlight Box ---
             ctx.beginPath();
-            ctx.moveTo(polygon[0] * viewport.scale, polygon[1] * viewport.scale);
+            const startX = polygon[0] * viewport.scale; // Apply scaling here
+            const startY = polygon[1] * viewport.scale; // Apply scaling here
+            ctx.moveTo(startX, startY);
+            console.log(`Draw: MoveTo (${startX.toFixed(2)}, ${startY.toFixed(2)})`);
             for (let i = 2; i < polygon.length; i += 2) {
-                ctx.lineTo(polygon[i] * viewport.scale, polygon[i + 1] * viewport.scale);
+                const pointX = polygon[i] * viewport.scale; // Apply scaling here
+                const pointY = polygon[i + 1] * viewport.scale; // Apply scaling here
+                ctx.lineTo(pointX, pointY);
+                console.log(`Draw: LineTo (${pointX.toFixed(2)}, ${pointY.toFixed(2)})`);
             }
             ctx.closePath();
-
-            // Style the highlight box
-            ctx.fillStyle = 'rgba(255, 255, 0, 0.3)'; // Semi-transparent yellow
-            ctx.strokeStyle = 'rgba(255, 0, 0, 0.7)'; // Red border
+            ctx.fillStyle = 'rgba(255, 255, 0, 0.3)';
+            ctx.strokeStyle = 'rgba(255, 0, 0, 0.7)';
             ctx.lineWidth = 1;
-
             ctx.fill();
             ctx.stroke();
-            // --- End Drawing ---
+            console.log("Highlight Info: Drawing complete.");
 
         }).catch(err => {
-            console.error('Error getting page for highlighting:', err);
+            console.error('Highlight Error: Failed to get page object after re-render:', err);
         });
     }).catch(err => {
-        console.error('Error re-rendering page before highlighting:', err);
+        console.error('Highlight Error: Failed to re-render page before highlighting:', err);
     });
+    console.log("--- handleLocationClick End (Highlight Attempted) ---");
 }
 
 /**
