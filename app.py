@@ -7,6 +7,7 @@ from azure.ai.documentintelligence import DocumentIntelligenceClient
 from azure.ai.documentintelligence.models import AnalyzeResult
 from dotenv import load_dotenv
 import logging
+import io  # Import io module for reading stream
 
 # Load environment variables from .env file
 load_dotenv()
@@ -66,10 +67,15 @@ def analyze_document_stream(file_stream, model_id="prebuilt-document"):
             endpoint=AZURE_ENDPOINT,
             credential=AzureKeyCredential(AZURE_KEY)
         )
+
+        # Read the stream content into bytes
+        file_bytes = file_stream.read()
+        logger.info(f"Read {len(file_bytes)} bytes from stream.")
+
         poller = document_intelligence_client.begin_analyze_document(
             model_id,
-            body=file_stream, # Correct parameter for stream
-            content_type="application/octet-stream" # Important for streams
+            body=file_bytes, # Pass the actual bytes
+            content_type="application/octet-stream"
         )
         result = poller.result()
         logger.info("Analysis successful.")
