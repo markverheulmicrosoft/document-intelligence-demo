@@ -101,10 +101,11 @@
 <body>
 
     <div id="top-controls">
-        <label for="fileInput">Select Document:</label>
-        <input type="file" id="fileInput" accept=".pdf">
+        <input type="file" id="fileInput" accept=".pdf" style="display: none;"> <!-- Hide the actual input -->
+        <button id="selectFileButton">Change PDF</button> <!-- Button to trigger file input -->
+        <span id="currentFileName">Loading default: input2.pdf</span> <!-- Show current file -->
         <button id="analyzeButton">Analyze Document</button>
-        <span id="status">Select a PDF file and click Analyze.</span>
+        <span id="status">Loading default PDF...</span>
     </div>
 
     <div id="main-content">

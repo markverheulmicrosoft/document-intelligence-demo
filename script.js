@@ -1,18 +1,21 @@
 // Get references to DOM elements
 const fileInput = document.getElementById('fileInput');
+const selectFileButton = document.getElementById('selectFileButton'); // New button
+const currentFileNameSpan = document.getElementById('currentFileName'); // Span for filename
 const analyzeButton = document.getElementById('analyzeButton');
 const statusDiv = document.getElementById('status');
-const extractedDataDiv = document.getElementById('extractedData');
+const extractedDataContainer = document.getElementById('extractedDataContainer'); // New reference
 const pdfCanvas = document.getElementById('pdfCanvas');
 const pdfViewerContainer = document.getElementById('pdfViewerContainer');
 const ctx = pdfCanvas.getContext('2d');
 
 let currentPdfDoc = null;
-let currentFile = null;
+let currentFile = null; // Will hold the File or Blob object
 let currentPageNum = 1; // Start with page 1
 let pageRendering = false;
 let pageNumPending = null;
 const scale = 1.5; // Adjust scale for rendering quality/size
+let dummyAnalysisResult = null; // Store result to redraw highlights on page change
 
 /**
  * Get page info from document, resize canvas accordingly, and render page.
@@ -66,18 +69,16 @@ function queueRenderPage(num) {
 }
 
 /**
- * Displays the selected PDF file in the canvas.
+ * Loads and renders a PDF from a File or Blob object.
+ * @param {File|Blob} fileObject The PDF file or blob.
+ * @param {string} fileName The name to display.
  */
-fileInput.addEventListener('change', async (event) => {
-    const file = event.target.files[0];
-    if (!file || file.type !== 'application/pdf') {
-        statusDiv.textContent = 'Please select a PDF file.';
-        return;
-    }
-    currentFile = file;
+async function loadAndRenderPdf(fileObject, fileName) {
+    currentFile = fileObject;
+    currentFileNameSpan.textContent = `Current: ${fileName}`;
     statusDiv.textContent = 'Loading PDF...';
-    extractedDataDiv.textContent = 'No data yet.'; // Reset data
-    clearHighlights(); // Clear highlights from previous PDF
+    extractedDataContainer.innerHTML = 'No data yet.'; // Clear formatted results
+    clearHighlights(); // Clear highlights
     dummyAnalysisResult = null; // Reset analysis result
 
     const fileReader = new FileReader();
@@ -88,13 +89,64 @@ fileInput.addEventListener('change', async (event) => {
             currentPdfDoc = await loadingTask.promise;
             statusDiv.textContent = `PDF loaded (${currentPdfDoc.numPages} pages). Rendering page 1...`;
             currentPageNum = 1;
-            renderPage(currentPageNum);
+            renderPage(currentPageNum); // Render the first page
         } catch (reason) {
             console.error('Error during PDF loading/rendering: ', reason);
             statusDiv.textContent = `Error loading PDF: ${reason.message}`;
+            currentFileNameSpan.textContent = `Error loading ${fileName}`;
         }
     };
-    fileReader.readAsArrayBuffer(file);
+    fileReader.onerror = () => {
+        statusDiv.textContent = `Error reading file ${fileName}.`;
+        currentFileNameSpan.textContent = `Error reading ${fileName}`;
+    }
+    fileReader.readAsArrayBuffer(fileObject);
+}
+
+// --- Default PDF Loading ----
+document.addEventListener('DOMContentLoaded', async () => {
+    statusDiv.textContent = 'Fetching default PDF (input2.pdf)...';
+    try {
+        // Fetch the local PDF file relative to index.html
+        const response = await fetch('input2.pdf');
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        const pdfBlob = await response.blob();
+        loadAndRenderPdf(pdfBlob, 'input2.pdf'); // Load and render the fetched blob
+    } catch (error) {
+        console.error('Error fetching default PDF:', error);
+        statusDiv.textContent = 'Error loading default PDF. Please select one manually.';
+        currentFileNameSpan.textContent = 'No file loaded.';
+    }
+});
+
+// --- Event Listeners ---
+
+// Trigger hidden file input when "Change PDF" button is clicked
+selectFileButton.addEventListener('click', () => {
+    fileInput.click();
+});
+
+// Handle file selection via the input element
+fileInput.addEventListener('change', async (event) => {
+    const file = event.target.files[0];
+    if (!file || file.type !== 'application/pdf') {
+        // statusDiv.textContent = 'Please select a PDF file.'; // Keep previous status if selection cancelled
+        return;
+    }
+    loadAndRenderPdf(file, file.name); // Load the newly selected file
+});
+
+// Analyze button remains the same
+analyzeButton.addEventListener('click', () => {
+    if (!currentFile) {
+        statusDiv.textContent = 'Please select or load a PDF file first.';
+        return;
+    }
+    // In a real app, you would send 'currentFile' (which could be a File or Blob)
+    // to your backend here using FormData and fetch()
+    simulateBackendAnalysis(currentFile);
 });
 
 /**
@@ -166,12 +218,63 @@ function drawHighlights(analysisResult) {
     });
 }
 
+/**
+ * Formats and displays the analysis results in a more readable way.
+ * @param {object} analysisResult - The result object from Document Intelligence.
+ */
+function displayFormattedResults(analysisResult) {
+    extractedDataContainer.innerHTML = ''; // Clear previous results
+
+    if (!analysisResult || !analysisResult.documents || !Array.isArray(analysisResult.documents)) {
+        extractedDataContainer.textContent = 'No analysis results available.';
+        return;
+    }
+
+    analysisResult.documents.forEach(doc => {
+        const docDiv = document.createElement('div');
+        docDiv.className = 'document-result';
+
+        const docType = document.createElement('h3');
+        docType.textContent = `Document Type: ${doc.docType}`;
+        docDiv.appendChild(docType);
+
+        const confidence = document.createElement('p');
+        confidence.textContent = `Confidence: ${doc.confidence}`;
+        docDiv.appendChild(confidence);
+
+        if (doc.fields) {
+            const fieldsDiv = document.createElement('div');
+            fieldsDiv.className = 'fields-container';
+
+            Object.entries(doc.fields).forEach(([fieldName, fieldData]) => {
+                const fieldDiv = document.createElement('div');
+                fieldDiv.className = 'field-result';
+
+                const fieldNameSpan = document.createElement('span');
+                fieldNameSpan.className = 'field-name';
+                fieldNameSpan.textContent = `${fieldName}: `;
+                fieldDiv.appendChild(fieldNameSpan);
+
+                const fieldContentSpan = document.createElement('span');
+                fieldContentSpan.className = 'field-content';
+                fieldContentSpan.textContent = fieldData.content;
+                fieldDiv.appendChild(fieldContentSpan);
+
+                fieldsDiv.appendChild(fieldDiv);
+            });
+
+            docDiv.appendChild(fieldsDiv);
+        }
+
+        extractedDataContainer.appendChild(docDiv);
+    });
+}
 
 // --- SIMULATED BACKEND INTERACTION ---
-let dummyAnalysisResult = null; // Store result to redraw highlights on page change
 
 async function simulateBackendAnalysis(file) {
     statusDiv.textContent = 'Analyzing document (simulation)...';
+    extractedDataContainer.innerHTML = 'Analyzing...'; // Show analyzing state
 
     await new Promise(resolve => setTimeout(resolve, 1500));
 
@@ -203,20 +306,11 @@ async function simulateBackendAnalysis(file) {
     };
     // --- End Dummy Data ---
 
-    statusDiv.textContent = 'Analysis complete (simulation).';
-    extractedDataDiv.textContent = JSON.stringify(dummyAnalysisResult, null, 2);
+    statusDiv.textContent = 'Analysis complete (simulation). Click location to highlight.';
+    displayFormattedResults(dummyAnalysisResult); // Display the formatted results
 
-    // Draw highlights based on the dummy result
-    drawHighlights(dummyAnalysisResult);
+    clearHighlights(); // Ensure no highlights are shown initially after analysis
 }
-
-analyzeButton.addEventListener('click', () => {
-    if (!currentFile) {
-        statusDiv.textContent = 'Please select a PDF file first.';
-        return;
-    }
-    simulateBackendAnalysis(currentFile);
-});
 
 // TODO: Add basic pagination controls (optional)
 // e.g., buttons for previous/next page that call queueRenderPage(newPageNum)
