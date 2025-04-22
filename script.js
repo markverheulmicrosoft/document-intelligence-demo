@@ -16,6 +16,7 @@ let pageRendering = false;
 let pageNumPending = null;
 const scale = 1.5; // Adjust scale for rendering quality/size
 let dummyAnalysisResult = null; // Store result to redraw highlights on page change
+let highlightAfterRender = null; // Store polygon data for highlighting after page render
 
 /**
  * Get page info from document, resize canvas accordingly, and render page.
@@ -24,6 +25,7 @@ let dummyAnalysisResult = null; // Store result to redraw highlights on page cha
 async function renderPage(pageNum) {
     if (!currentPdfDoc) return;
     pageRendering = true;
+    clearHighlights(); // Clear highlights before rendering new page
 
     // Using promise to fetch the page
     const page = await currentPdfDoc.getPage(pageNum);
@@ -41,18 +43,21 @@ async function renderPage(pageNum) {
     // Wait for rendering to finish
     await renderTask.promise;
     pageRendering = false;
-    if (pageNumPending !== null) {
-        // New page rendering is pending
-        renderPage(pageNumPending);
-        pageNumPending = null;
-    }
+
     // Update status or UI if needed
     statusDiv.textContent = `Page ${pageNum} rendered.`;
 
-    // After rendering, potentially redraw highlights if analysis was already done
-    clearHighlights(); // Clear old ones first
-    if (dummyAnalysisResult) { // Check if analysis result exists
-        drawHighlights(dummyAnalysisResult); // Redraw based on stored result
+    // If a specific highlight was requested before rendering, draw it now
+    if (highlightAfterRender && highlightAfterRender.pageNum === pageNum) {
+        drawSpecificHighlight(highlightAfterRender.polygon, pageNum);
+        highlightAfterRender = null; // Clear the request
+    }
+
+    // Handle pending page render requests
+    if (pageNumPending !== null) {
+        const pendingPage = pageNumPending;
+        pageNumPending = null;
+        renderPage(pendingPage); // Render the pending page
     }
 }
 
@@ -80,6 +85,7 @@ async function loadAndRenderPdf(fileObject, fileName) {
     extractedDataContainer.innerHTML = 'No data yet.'; // Clear formatted results
     clearHighlights(); // Clear highlights
     dummyAnalysisResult = null; // Reset analysis result
+    highlightAfterRender = null; // Clear pending highlight request
 
     const fileReader = new FileReader();
     fileReader.onload = async function () {
@@ -158,44 +164,37 @@ function clearHighlights() {
 }
 
 /**
- * Draws highlights on the PDF viewer based on bounding box data.
+ * Draws highlights for ALL fields on the current page from the analysis result.
+ * (Used less frequently now, primarily for initial draw if desired)
  * @param {object} analysisResult - The result object containing fields and bounding boxes.
  */
 function drawHighlights(analysisResult) {
     clearHighlights();
-    if (!analysisResult || !currentPdfDoc) return; // Check for analysisResult and pdfDoc
+    if (!analysisResult || !currentPdfDoc) return;
 
-    // Use stored currentPageNum
     currentPdfDoc.getPage(currentPageNum).then(page => {
         const viewport = page.getViewport({ scale: scale });
 
-        // Check if analysisResult.documents exists and is an array
         if (analysisResult.documents && Array.isArray(analysisResult.documents)) {
             analysisResult.documents.forEach(doc => {
-                // Check if doc.fields exists
                 if (doc.fields) {
                     Object.values(doc.fields).forEach(field => {
                         if (field.boundingRegions) {
                             field.boundingRegions.forEach(region => {
-                                // Only draw highlights for the currently rendered page
                                 if (region.pageNumber === currentPageNum) {
-                                    const polygon = region.polygon; // Array of numbers [x0, y0, x1, y1, ...]
-
+                                    const polygon = region.polygon;
                                     if (polygon && polygon.length >= 8) {
-                                        // Find min/max x/y from the polygon points
+                                        // Draw the highlight (code duplicated in drawSpecificHighlight)
                                         let minX = polygon[0], maxX = polygon[0];
                                         let minY = polygon[1], maxY = polygon[1];
                                         for (let i = 2; i < polygon.length; i += 2) {
                                             minX = Math.min(minX, polygon[i]);
                                             maxX = Math.max(maxX, polygon[i]);
-                                            minY = Math.min(minY, polygon[i + 1]);
-                                            maxY = Math.max(maxY, polygon[i + 1]);
+                                            minY = Math.min(minY, polygon[i+1]);
+                                            maxY = Math.max(maxY, polygon[i+1]);
                                         }
-
-                                        // Convert PDF coordinates (inches/points) to canvas pixels
                                         const topLeft = viewport.convertToViewportPoint(minX, maxY);
                                         const bottomRight = viewport.convertToViewportPoint(maxX, minY);
-
                                         const highlight = document.createElement('div');
                                         highlight.className = 'highlight';
                                         highlight.style.left = `${topLeft[0]}px`;
@@ -211,10 +210,9 @@ function drawHighlights(analysisResult) {
                 }
             });
         }
-        // Add similar logic here to iterate through result.key_value_pairs if needed
-
+        // Add similar logic for key_value_pairs if needed
     }).catch(error => {
-        console.error("Error getting page for highlighting:", error);
+        console.error("Error getting page for drawing all highlights:", error);
     });
 }
 
@@ -225,48 +223,144 @@ function drawHighlights(analysisResult) {
 function displayFormattedResults(analysisResult) {
     extractedDataContainer.innerHTML = ''; // Clear previous results
 
-    if (!analysisResult || !analysisResult.documents || !Array.isArray(analysisResult.documents)) {
-        extractedDataContainer.textContent = 'No analysis results available.';
+    if (!analysisResult) {
+        extractedDataContainer.textContent = 'No analysis data available.';
         return;
     }
 
-    analysisResult.documents.forEach(doc => {
-        const docDiv = document.createElement('div');
-        docDiv.className = 'document-result';
+    // Display Documents (from prebuilt/custom models)
+    if (analysisResult.documents && Array.isArray(analysisResult.documents)) {
+        analysisResult.documents.forEach((doc, docIndex) => {
+            const docDiv = document.createElement('div');
+            docDiv.className = 'result-document';
+            docDiv.innerHTML = `<h3>Document ${docIndex + 1} (Type: ${doc.docType || 'N/A'}, Confidence: ${doc.confidence !== undefined ? doc.confidence.toFixed(2) : 'N/A'})</h3>`;
 
-        const docType = document.createElement('h3');
-        docType.textContent = `Document Type: ${doc.docType}`;
-        docDiv.appendChild(docType);
+            if (doc.fields) {
+                Object.entries(doc.fields).forEach(([name, field]) => {
+                    const fieldDiv = document.createElement('div');
+                    fieldDiv.className = 'result-field';
 
-        const confidence = document.createElement('p');
-        confidence.textContent = `Confidence: ${doc.confidence}`;
-        docDiv.appendChild(confidence);
+                    const nameSpan = document.createElement('span');
+                    nameSpan.className = 'field-name';
+                    nameSpan.textContent = `${name}: `;
+                    fieldDiv.appendChild(nameSpan);
 
-        if (doc.fields) {
-            const fieldsDiv = document.createElement('div');
-            fieldsDiv.className = 'fields-container';
+                    const valueSpan = document.createElement('span');
+                    valueSpan.className = 'field-value';
+                    valueSpan.textContent = field.content || 'N/A';
+                    fieldDiv.appendChild(valueSpan);
 
-            Object.entries(doc.fields).forEach(([fieldName, fieldData]) => {
-                const fieldDiv = document.createElement('div');
-                fieldDiv.className = 'field-result';
+                    const confidenceSpan = document.createElement('span');
+                    confidenceSpan.className = 'field-confidence';
+                    confidenceSpan.textContent = ` (Confidence: ${field.confidence !== undefined ? field.confidence.toFixed(2) : 'N/A'})`;
+                    fieldDiv.appendChild(confidenceSpan);
 
-                const fieldNameSpan = document.createElement('span');
-                fieldNameSpan.className = 'field-name';
-                fieldNameSpan.textContent = `${fieldName}: `;
-                fieldDiv.appendChild(fieldNameSpan);
+                    // Add clickable location span
+                    if (field.boundingRegions && field.boundingRegions.length > 0) {
+                        const region = field.boundingRegions[0]; // Use first region for simplicity
+                        const locationSpan = document.createElement('span');
+                        locationSpan.className = 'field-location';
+                        locationSpan.textContent = ` [Location: Page ${region.pageNumber}]`;
+                        locationSpan.title = `Click to highlight on page ${region.pageNumber}`;
+                        locationSpan.dataset.pageNumber = region.pageNumber;
+                        // Store polygon data directly for highlighting function
+                        locationSpan.dataset.polygon = JSON.stringify(region.polygon);
 
-                const fieldContentSpan = document.createElement('span');
-                fieldContentSpan.className = 'field-content';
-                fieldContentSpan.textContent = fieldData.content;
-                fieldDiv.appendChild(fieldContentSpan);
+                        locationSpan.addEventListener('click', handleLocationClick);
+                        fieldDiv.appendChild(locationSpan);
+                    }
 
-                fieldsDiv.appendChild(fieldDiv);
-            });
+                    docDiv.appendChild(fieldDiv);
+                });
+            }
+            extractedDataContainer.appendChild(docDiv);
+        });
+    }
 
-            docDiv.appendChild(fieldsDiv);
+    // Display Key-Value Pairs (from layout model) - Add similar loop if needed
+    // ... (code for key_value_pairs can be added here if required) ...
+
+
+    if (extractedDataContainer.innerHTML === '') {
+        extractedDataContainer.textContent = 'No specific documents or key-value pairs found in the result.';
+    }
+}
+
+/**
+ * Handles clicking on a location span to trigger highlighting.
+ * @param {Event} event The click event.
+ */
+function handleLocationClick(event) {
+    const target = event.target;
+    const pageNum = parseInt(target.dataset.pageNumber, 10);
+    const polygon = JSON.parse(target.dataset.polygon);
+
+    if (!isNaN(pageNum) && polygon) {
+        // If the page is not currently rendered, render it first
+        if (pageNum !== currentPageNum) {
+            currentPageNum = pageNum;
+            // Store the polygon to highlight after rendering finishes
+            highlightAfterRender = { pageNum: pageNum, polygon: polygon };
+            queueRenderPage(pageNum);
+        } else {
+            // Page is already rendered, just draw the specific highlight
+            drawSpecificHighlight(polygon, pageNum);
         }
+    }
+}
 
-        extractedDataContainer.appendChild(docDiv);
+/**
+ * Draws a single highlight based on polygon data.
+ * Clears previous highlights first.
+ * @param {number[]} polygon The polygon coordinates (from Document Intelligence, in inches, top-left origin).
+ * @param {number} pageNum The page number the polygon belongs to.
+ */
+function drawSpecificHighlight(polygon, pageNum) {
+    clearHighlights(); // Clear any existing highlights
+    if (!currentPdfDoc || pageNum !== currentPageNum) return; // Ensure correct page is loaded
+
+    currentPdfDoc.getPage(pageNum).then(page => {
+        const viewport = page.getViewport({ scale: scale });
+        // Get page dimensions in PDF points (usually 1/72 inch). Origin is bottom-left.
+        // page.view = [x0, y0, x1, y1] in points. Height is view[3] - view[1]. Often view[1] is 0.
+        const pageHeightInPoints = page.view[3]; 
+
+        if (polygon && polygon.length >= 8) {
+            // 1. Find min/max coordinates from the polygon (these are in INCHES, top-left origin)
+            let minX_inch = polygon[0], maxX_inch = polygon[0];
+            let minY_inch = polygon[1], maxY_inch = polygon[1];
+            for (let i = 2; i < polygon.length; i += 2) {
+                minX_inch = Math.min(minX_inch, polygon[i]);
+                maxX_inch = Math.max(maxX_inch, polygon[i]);
+                minY_inch = Math.min(minY_inch, polygon[i+1]);
+                maxY_inch = Math.max(maxY_inch, polygon[i+1]);
+            }
+
+            // 2. Convert the bounding box from inches (top-left origin) to PDF points (bottom-left origin)
+            const pdfPointsTopLeft = [
+                minX_inch * 72, // x in points
+                pageHeightInPoints - (minY_inch * 72) // y in points (inverted)
+            ];
+            const pdfPointsBottomRight = [
+                maxX_inch * 72, // x in points
+                pageHeightInPoints - (maxY_inch * 72) // y in points (inverted)
+            ];
+
+            // 3. Convert PDF points (bottom-left origin) to Viewport coordinates (pixels, top-left origin)
+            const viewportTopLeft = viewport.convertToViewportPoint(pdfPointsTopLeft[0], pdfPointsTopLeft[1]);
+            const viewportBottomRight = viewport.convertToViewportPoint(pdfPointsBottomRight[0], pdfPointsBottomRight[1]);
+
+            // 4. Create and position the highlight div
+            const highlight = document.createElement('div');
+            highlight.className = 'highlight';
+            highlight.style.left = `${viewportTopLeft[0]}px`;
+            highlight.style.top = `${viewportTopLeft[1]}px`;
+            highlight.style.width = `${viewportBottomRight[0] - viewportTopLeft[0]}px`;
+            highlight.style.height = `${viewportBottomRight[1] - viewportTopLeft[1]}px`;
+            pdfViewerContainer.appendChild(highlight);
+        }
+    }).catch(error => {
+        console.error("Error getting page for specific highlighting:", error);
     });
 }
 
@@ -275,6 +369,8 @@ function displayFormattedResults(analysisResult) {
 async function simulateBackendAnalysis(file) {
     statusDiv.textContent = 'Analyzing document (simulation)...';
     extractedDataContainer.innerHTML = 'Analyzing...'; // Show analyzing state
+    clearHighlights(); // Clear highlights during analysis
+    highlightAfterRender = null; // Clear pending highlight request
 
     await new Promise(resolve => setTimeout(resolve, 1500));
 
@@ -295,21 +391,24 @@ async function simulateBackendAnalysis(file) {
                         confidence: 0.771,
                         boundingRegions: [{ pageNumber: 1, polygon: [6.8308, 2.0152, 7.3401, 2.02, 7.3387, 2.1777, 6.8294, 2.1729] }]
                     },
-                    "VendorName": {
+                     "VendorName": {
                         content: "Uber",
                         confidence: 0.568,
                         boundingRegions: [{ pageNumber: 1, polygon: [0.9024, 0.541, 1.5077, 0.5443, 1.5077, 0.8051, 0.9012, 0.7995] }]
                     }
+                    // Add more dummy fields corresponding to your needs
                 }
             }
         ]
+        // Include key_value_pairs if using layout model
+        // key_value_pairs: [ { key: {...}, value: { content: "...", boundingRegions: [...] } } ]
     };
     // --- End Dummy Data ---
 
     statusDiv.textContent = 'Analysis complete (simulation). Click location to highlight.';
     displayFormattedResults(dummyAnalysisResult); // Display the formatted results
 
-    clearHighlights(); // Ensure no highlights are shown initially after analysis
+    // No automatic highlighting after analysis - user must click
 }
 
 // TODO: Add basic pagination controls (optional)
