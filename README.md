@@ -27,7 +27,7 @@ This web application uses Azure Document Intelligence to extract structured data
    ```
 4. Install dependencies:
    ```bash
-   pip install azure-ai-documentintelligence azure-core flask flask-cors python-dotenv
+   pip install -r requirements.txt
    ```
 5. Create a `.env` file in the project root with your Azure credentials:
    ```
@@ -59,6 +59,17 @@ This web application uses Azure Document Intelligence to extract structured data
 - **Backend**: Flask application (`app.py`) that handles API requests and serves static files
 - **Frontend**: HTML/JavaScript application with PDF.js for rendering PDFs and drawing highlights
 - **Azure Integration**: Uses Azure Document Intelligence SDK to analyze documents and extract data with bounding boxes
+
+## Sample Data
+
+The repository includes:
+- `input.pdf`: A non-sensitive sample invoice for testing the application
+- `create_sample_invoice.py`: A utility script that generates the sample invoice using ReportLab
+
+You can create additional sample invoices by running:
+```bash
+python create_sample_invoice.py
+```
 
 ## Customization
 

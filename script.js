@@ -213,15 +213,15 @@ async function loadAndRenderPdf(fileObject, fileName) {
 
 // --- Default PDF Loading ----
 document.addEventListener('DOMContentLoaded', async () => {
-    statusDiv.textContent = 'Fetching default PDF (input2.pdf)...';
+    statusDiv.textContent = 'Fetching default PDF (input.pdf)...';
     try {
         // Fetch the local PDF file relative to index.html
-        const response = await fetch('input2.pdf');
+        const response = await fetch('input.pdf');
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
         const pdfBlob = await response.blob();
-        loadAndRenderPdf(pdfBlob, 'input2.pdf'); // Load and render the fetched blob
+        loadAndRenderPdf(pdfBlob, 'input.pdf'); // Load and render the fetched blob
     } catch (error) {
         console.error('Error fetching default PDF:', error);
         statusDiv.textContent = 'Error loading default PDF. Please select one manually.';
@@ -353,47 +353,47 @@ function handleLocationClick(boundingRegions) {
             const scale = 1.5; // Must match the scale in renderPage
             const viewport = page.getViewport({ scale: scale });
             const pageHeightInPoints = page.view[3]; // Height of the PDF page in points
-            
+
             console.log("Highlight Info: Viewport obtained. Drawing polygon...");
             console.log("Page dimensions:", page.view, "Height in points:", pageHeightInPoints);
 
             // Start a new path
             ctx.beginPath();
-            
+
             // CRITICAL FIX: Proper coordinate conversion from inches to PDF points to canvas pixels
             // 1. Convert first point from inches (Document Intelligence) to PDF points (1 inch = 72 points)
             // 2. For Y coordinates, we need to flip the origin from top-left to bottom-left
             // 3. Then convert from points to canvas pixels using the viewport
-            
+
             const INCH_TO_POINT = 72; // Standard conversion: 1 inch = 72 points in PDF
-            
+
             // Convert first coordinate and move to it
             const firstPointX_point = polygon[0] * INCH_TO_POINT; // X: inch to point
             const firstPointY_point = pageHeightInPoints - (polygon[1] * INCH_TO_POINT); // Y: inch to point with origin flip
-            
+
             // Convert from PDF points to canvas pixels
             const firstPoint = viewport.convertToViewportPoint(firstPointX_point, firstPointY_point);
             ctx.moveTo(firstPoint[0], firstPoint[1]);
             console.log(`Draw: MoveTo (${firstPoint[0].toFixed(2)}, ${firstPoint[1].toFixed(2)}) [converted from inches: (${polygon[0]}, ${polygon[1]})]`);
-            
+
             // Do the same for each remaining point
             for (let i = 2; i < polygon.length; i += 2) {
                 const pointX_point = polygon[i] * INCH_TO_POINT; // X: inch to point
-                const pointY_point = pageHeightInPoints - (polygon[i+1] * INCH_TO_POINT); // Y: inch to point with origin flip
-                
+                const pointY_point = pageHeightInPoints - (polygon[i + 1] * INCH_TO_POINT); // Y: inch to point with origin flip
+
                 // Convert from PDF points to canvas pixels
                 const point = viewport.convertToViewportPoint(pointX_point, pointY_point);
                 ctx.lineTo(point[0], point[1]);
-                console.log(`Draw: LineTo (${point[0].toFixed(2)}, ${point[1].toFixed(2)}) [converted from inches: (${polygon[i]}, ${polygon[i+1]})]`);
+                console.log(`Draw: LineTo (${point[0].toFixed(2)}, ${point[1].toFixed(2)}) [converted from inches: (${polygon[i]}, ${polygon[i + 1]})]`);
             }
-            
+
             ctx.closePath();
-            
+
             // Style the highlight
             ctx.fillStyle = 'rgba(255, 255, 0, 0.3)'; // Semi-transparent yellow fill
             ctx.strokeStyle = 'rgba(255, 0, 0, 0.7)'; // Red border
             ctx.lineWidth = 2; // Make border a bit thicker for visibility
-            
+
             // Apply the drawing
             ctx.fill();
             ctx.stroke();

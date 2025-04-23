@@ -190,16 +190,16 @@ Potential enhancements to consider:
 
 ## 10. Comparison with Alternatives
 
-| Feature | Our Solution | OCR-Only Solutions | Template-Based Systems | General-Purpose LLMs |
-|---------|-------------|-------------------|------------------------|----------------------|
-| Accuracy for diverse document formats | ✅ High | ⚠️ Medium | ❌ Low | ⚠️ Medium |
-| Field-level extraction | ✅ Yes | ❌ No | ✅ Yes | ✅ Yes |
-| Position coordinates for highlighting | ✅ Precise | ⚠️ Basic | ✅ Yes | ❌ No |
-| Confidence scores | ✅ Yes | ❌ No | ⚠️ Limited | ⚠️ Limited |
-| Implementation complexity | ⚠️ Medium | ✅ Low | ❌ High | ⚠️ Medium |
-| Maintenance requirements | ✅ Low | ✅ Low | ❌ High | ⚠️ Medium |
-| Cost | ⚠️ Usage-based | ✅ Low | ❌ High | ❌ High |
-| Visual verification capability | ✅ Yes | ❌ No | ⚠️ Limited | ❌ No |
-| Processing speed | ✅ Fast | ✅ Fast | ✅ Fast | ❌ Slow |
+| Feature                               | Our Solution  | OCR-Only Solutions | Template-Based Systems | General-Purpose LLMs |
+| ------------------------------------- | ------------- | ------------------ | ---------------------- | -------------------- |
+| Accuracy for diverse document formats | ✅ High        | ⚠️ Medium           | ❌ Low                  | ⚠️ Medium             |
+| Field-level extraction                | ✅ Yes         | ❌ No               | ✅ Yes                  | ✅ Yes                |
+| Position coordinates for highlighting | ✅ Precise     | ⚠️ Basic            | ✅ Yes                  | ❌ No                 |
+| Confidence scores                     | ✅ Yes         | ❌ No               | ⚠️ Limited              | ⚠️ Limited            |
+| Implementation complexity             | ⚠️ Medium      | ✅ Low              | ❌ High                 | ⚠️ Medium             |
+| Maintenance requirements              | ✅ Low         | ✅ Low              | ❌ High                 | ⚠️ Medium             |
+| Cost                                  | ⚠️ Usage-based | ✅ Low              | ❌ High                 | ❌ High               |
+| Visual verification capability        | ✅ Yes         | ❌ No               | ⚠️ Limited              | ❌ No                 |
+| Processing speed                      | ✅ Fast        | ✅ Fast             | ✅ Fast                 | ❌ Slow               |
 
 This comparison demonstrates why our approach provides the best balance of accuracy, flexibility, and user experience for document data extraction with visual verification.
