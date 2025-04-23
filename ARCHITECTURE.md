@@ -1,82 +1,114 @@
-# Solution Design: PDF Data Extraction and Visual Source Linking
+# Architecture: Azure Document Intelligence PDF Analyzer
 
-This document outlines the recommended architecture for building a web application that extracts data from uploaded PDF documents and allows users to visually verify the source of the extracted information within the original PDF.
+This document outlines the architecture of the PDF Analyzer web application, which extracts data from PDF documents and enables users to visually verify the source of the extracted information within the original document.
 
-## 1. Goal
+## 1. System Overview
 
-The primary goal is to create a user-friendly web interface where:
+The application consists of a Flask backend and HTML/JavaScript frontend with the following key components:
 
-1.  Users can upload PDF documents.
-2.  Specific data points (entities, key-value pairs) are automatically extracted from the PDF.
-3.  The extracted data is presented to the user (e.g., in form fields).
-4.  Users can easily see *where* in the original PDF document a specific piece of extracted data came from, ideally by highlighting the source text/area directly on a view of the PDF.
-5.  The solution must be production-stable, scalable, and leverage Azure services where possible, minimizing reliance on complex third-party tools.
+![Architecture Overview: Frontend (HTML/JS/PDF.js) ←→ Backend (Flask) ←→ Azure Document Intelligence]
 
-## 2. Recommended Approach: Azure Document Intelligence + Frontend PDF Rendering
+### Components
 
-The most effective way to achieve the goal, especially the visual source linking, is to combine:
+1. **Frontend**
+   - HTML/JavaScript-based web interface
+   - PDF.js for PDF rendering and highlighting
+   - Split-screen UI showing extracted data and PDF document
 
-*   **Azure Document Intelligence:** For robust data extraction *and* obtaining precise location information (bounding boxes).
-*   **Frontend PDF Rendering with Highlighting:** Using a JavaScript library like PDF.js to display the PDF in the browser and draw highlights based on the coordinates provided by Document Intelligence.
+2. **Backend**
+   - Flask web server providing:
+     - Static file serving (HTML, JavaScript, default PDFs)
+     - RESTful API endpoint for document analysis
+   - Direct file processing (no intermediate blob storage)
 
-## 3. Why Azure Document Intelligence?
+3. **Azure Document Intelligence**
+   - Cloud-based document analysis service
+   - Provides structured data extraction with bounding box coordinates
+   - Uses the prebuilt invoice model by default
 
-While other LLMs *could* extract text, Azure Document Intelligence is the superior choice for this specific task because:
+## 2. Data Flow
 
-*   **Purpose-Built:** It's specifically designed and optimized for understanding document layouts, structures (tables, forms), and extracting data accurately.
-*   **Bounding Box Coordinates:** This is the critical feature. Document Intelligence returns the exact pixel coordinates (bounding boxes or polygons) and page numbers for every piece of text, key, value, table cell, etc., it identifies. This is essential for accurately drawing highlights on the PDF view.
-*   **Production Stability & Scalability:** As a managed Azure PaaS offering, it's built for production workloads, handles scaling automatically, and is maintained by Microsoft.
-*   **Prebuilt & Custom Models:** Offers powerful prebuilt models (like `prebuilt-document` for general forms, `prebuilt-invoice`, `prebuilt-receipt`, etc.) and the ability to train custom models tailored to specific document layouts for maximum accuracy.
-*   **Integration:** Seamlessly integrates with other Azure services (Functions, Logic Apps, Blob Storage).
+1. **Document Upload & Rendering**
+   - User uploads a PDF or uses the default document
+   - Frontend loads the PDF using PDF.js
+   - Document is rendered in the PDF viewer area
 
-Using a general-purpose LLM might struggle to consistently provide the precise coordinate information needed for reliable visual highlighting.
+2. **Document Analysis**
+   - User initiates analysis by clicking "Analyze Document"
+   - Frontend sends the PDF to the backend via an AJAX POST request
+   - Backend processes the PDF using Azure Document Intelligence
+   - Backend converts the results to a JSON-serializable format
+   - Structured data (including field values and bounding box coordinates) is returned to the frontend
 
-## 4. Architecture Overview
+3. **Visualization & Verification**
+   - Frontend displays the extracted fields in a structured format
+   - When a user clicks on an extracted field, the application:
+     - Retrieves the bounding box coordinates for that field
+     - Renders the appropriate page of the PDF
+     - Draws a highlight overlay on the PDF using the coordinates
 
-![Architecture Diagram Placeholder - A diagram would show Frontend -> Backend API -> Blob Storage & Doc Intelligence -> Frontend with PDF.js]
+## 3. Key Technologies
 
-*   **Frontend:**
-    *   Web application (React, Angular, Vue, Blazor, HTML/JS).
-    *   Handles user interaction, file uploads.
-    *   Integrates a PDF viewer library (e.g., **PDF.js**).
-*   **Backend API:**
-    *   Hosted on **Azure Functions** (recommended for cost-efficiency and event-driven processing) or **Azure App Service**.
-    *   Receives PDF uploads from the frontend.
-    *   Orchestrates the analysis process.
-    *   Communicates with Azure Blob Storage and Document Intelligence.
-*   **Azure Blob Storage:**
-    *   Securely stores uploaded PDF files.
-    *   Provides URLs (potentially SAS URLs) for Document Intelligence and the frontend PDF viewer to access the files.
-*   **Azure Document Intelligence:**
-    *   The core analysis engine.
-    *   Receives analysis requests from the backend API (pointing to the PDF in Blob Storage).
-    *   Returns structured data including text content, key-value pairs, entities, tables, and their bounding box coordinates.
-*   **PDF Viewer Library (Frontend):**
-    *   **PDF.js** (Mozilla): Recommended. Open-source, widely used, robust, minimal external dependencies. Renders PDF pages in the browser.
-    *   Provides APIs to draw custom overlays (highlights) on the rendered PDF canvas using the coordinates from Document Intelligence.
+### Frontend
 
-## 5. Workflow
+- **HTML/CSS**: Basic structure and styling
+- **JavaScript**: Core application logic
+- **PDF.js**: Mozilla's PDF rendering library
+- **Fetch API**: For HTTP requests to the backend
 
-1.  **Upload:** User uploads a PDF via the frontend.
-2.  **Store:** Frontend sends the PDF to the Backend API, which uploads it to Azure Blob Storage.
-3.  **Analyze:** Backend API triggers Azure Document Intelligence analysis, providing the appropriate `model_id` (for this use case, this will typically be a **custom model ID** obtained after training in Document Intelligence Studio) and the Blob Storage location of the PDF.
-4.  **Extract:** Document Intelligence processes the PDF and returns a JSON result containing extracted data (text, tables, specific fields defined in the custom model, etc.) and corresponding bounding box coordinates/page numbers to the Backend API.
-5.  **Format:** Backend API processes the result, extracts the required data points and their locations, and sends this structured information back to the frontend.
-6.  **Display:** Frontend populates input fields with the extracted data.
-7.  **Render PDF:** Frontend uses PDF.js to load the PDF (from Blob Storage) and display it.
-8.  **Highlight:** When the user interacts with a data field (e.g., clicks an icon), the frontend uses the associated bounding box coordinates and page number to instruct PDF.js to draw a highlight rectangle/polygon on the displayed PDF page at the precise location of the source data.
+### Backend
 
-## 6. Proof of Concept (`main.py`)
+- **Flask**: Python web framework
+- **Flask-CORS**: Cross-Origin Resource Sharing support
+- **Azure SDK for Python**: Communication with Azure Document Intelligence
 
-The `main.py` script in this repository serves as a basic proof of concept demonstrating a core capability required for this architecture:
+### Cloud Services
 
-*   It shows how to call the Document Intelligence SDK with different model IDs.
-*   Crucially, it demonstrates that the analysis result (whether from layout, prebuilt, or a custom model) contains the necessary **`page_number` and `polygon` (bounding box coordinates)** alongside the extracted text/values.
+- **Azure Document Intelligence**: Document analysis with the following capabilities:
+  - Text extraction with positional data
+  - Field identification and classification
+  - Confidence scoring
+  - Bounding box/polygon coordinates for visual mapping
 
-This location data is the key to enabling the frontend (using a library like PDF.js) to implement the visual highlighting feature, linking extracted data back to its precise source on the PDF page.
+## 4. Coordinate System & Highlighting
 
-```
-# Example Output Snippet showing location data:
-Value: "$500.00"
-  -> Location: Page #1, Box: [500.0, 700.0, 580.0, 700.0, 580.0, 715.0, 500.0, 715.0]
-```
+A key technical aspect of this application is the coordinate conversion between different systems:
+
+1. **Azure Document Intelligence Coordinates**:
+   - Returned as polygons in the response
+   - Based on inches from the top-left corner of the page
+   - Format: `[x1, y1, x2, y2, x3, y3, x4, y4]` (four corners of a quadrilateral)
+
+2. **PDF Coordinate System**:
+   - PDF.js uses "PDF points" (1/72 inch) with origin at bottom-left
+   - Conversion from Azure coordinates requires:
+     - Multiplying by 72 (converting inches to points)
+     - Flipping the Y-axis (Azure: top-down, PDF: bottom-up)
+
+3. **Canvas Coordinate System**:
+   - Final drawing happens on an HTML canvas
+   - PDF.js viewport handles conversion from PDF points to canvas pixels
+
+The `handleLocationClick` function in `script.js` implements this coordinate transformation to accurately highlight text regions.
+
+## 5. Error Handling
+
+- **Frontend**: Form validation, HTTP error handling, and user feedback
+- **Backend**: Exception handling with appropriate HTTP status codes
+- **Logging**: Comprehensive logging for debugging and monitoring
+
+## 6. Future Improvements
+
+Potential enhancements to consider:
+
+1. **Multi-page Support**: Enhanced navigation for multi-page documents
+2. **Model Selection**: Frontend UI option to choose different document intelligence models
+3. **Persistence**: Storing analysis results for future reference
+4. **Security Enhancements**: Additional validation, authentication, and authorization
+5. **Batched Processing**: Support for analyzing multiple documents
+
+## 7. Implementation Files
+
+- **app.py**: Flask server with API endpoints and document analysis
+- **index.html**: Main web interface
+- **script.js**: Frontend logic for PDF rendering and data interaction
