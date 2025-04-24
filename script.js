@@ -6,6 +6,7 @@ const analyzeButton = document.getElementById('analyzeButton');
 const statusDiv = document.getElementById('status');
 const extractedDataContainer = document.getElementById('extractedDataContainer'); // New reference
 const pdfCanvas = document.getElementById('pdfCanvas');
+const textLayer = document.getElementById('textLayer'); // New reference for text layer
 const pdfViewerContainer = document.getElementById('pdfViewerContainer');
 const ctx = pdfCanvas.getContext('2d');
 const pageNumDisplay = document.getElementById('pageNumDisplay');
@@ -24,6 +25,7 @@ const scale = 1.5; // Adjust scale for rendering quality/size
 let currentAnalysisResult = null; // Store the actual result from the backend
 let highlightAfterRender = null; // Store polygon data for highlighting after page render
 let currentRenderTask = null; // Keep track of rendering task
+let currentTextLayerTask = null; // Keep track of text layer rendering task
 
 /**
  * Get page info from document, resize canvas accordingly, and render page.
@@ -44,11 +46,18 @@ async function renderPage(pageNum) {
         pageRendering = true;
         clearHighlights(); // Clear highlights before rendering new page
 
+        // Clear text layer
+        textLayer.innerHTML = '';
+
         // Using promise to fetch the page
         pdfDoc.getPage(pageNum).then(page => {
             const viewport = page.getViewport({ scale: scale });
             pdfCanvas.height = viewport.height;
             pdfCanvas.width = viewport.width;
+
+            // Adjust text layer dimensions to match canvas
+            textLayer.style.width = `${viewport.width}px`;
+            textLayer.style.height = `${viewport.height}px`;
 
             // Render PDF page into canvas context
             const renderContext = {
@@ -57,25 +66,48 @@ async function renderPage(pageNum) {
             };
             currentRenderTask = page.render(renderContext);
 
+            // Get text content to add to text layer
+            const textContentPromise = page.getTextContent();
+
             currentRenderTask.promise.then(() => {
-                pageRendering = false;
-                statusDiv.textContent = `Page ${pageNum} rendered.`;
-                currentPageNum = pageNum; // Update current page number
-                currentRenderTask = null; // Clear task tracker
+                // Handle text layer rendering
+                textContentPromise.then(textContent => {
+                    // Create text layer
+                    const textLayerDiv = textLayer;
+                    textLayerDiv.innerHTML = '';
 
-                // If a specific highlight was requested before rendering, draw it now
-                if (highlightAfterRender && highlightAfterRender.pageNum === pageNum) {
-                    drawSpecificHighlight(highlightAfterRender.polygon, pageNum);
-                    highlightAfterRender = null; // Clear the request
-                }
+                    pdfjsLib.renderTextLayer({
+                        textContent: textContent,
+                        container: textLayerDiv,
+                        viewport: viewport,
+                        textDivs: []
+                    });
 
-                // Handle pending page render requests
-                if (pageNumPending !== null) {
-                    const pendingPage = pageNumPending;
-                    pageNumPending = null;
-                    renderPage(pendingPage); // Render the pending page
-                }
-                resolve(); // Resolve the promise on success
+                    // Finish rendering
+                    pageRendering = false;
+                    statusDiv.textContent = `Page ${pageNum} rendered.`;
+                    currentPageNum = pageNum; // Update current page number
+                    currentRenderTask = null; // Clear task tracker
+
+                    // If a specific highlight was requested before rendering, draw it now
+                    if (highlightAfterRender && highlightAfterRender.pageNum === pageNum) {
+                        drawSpecificHighlight(highlightAfterRender.polygon, pageNum);
+                        highlightAfterRender = null; // Clear the request
+                    }
+
+                    // Handle pending page render requests
+                    if (pageNumPending !== null) {
+                        const pendingPage = pageNumPending;
+                        pageNumPending = null;
+                        renderPage(pendingPage); // Render the pending page
+                    }
+                    resolve(); // Resolve the promise on success
+                }).catch(err => {
+                    console.error('Error rendering text layer:', err);
+                    pageRendering = false;
+                    currentRenderTask = null; // Clear task tracker
+                    resolve(); // Still resolve as the canvas render was successful
+                });
             }).catch(err => {
                 console.error('Error rendering page:', err);
                 pageRendering = false;
