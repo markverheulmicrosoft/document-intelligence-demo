@@ -10,7 +10,7 @@ exceptiongroup==1.2.2
 fastapi==0.115.12
 Flask==3.1.0
 flask-cors==5.0.1
-h11==0.14.0
+h11==0.16.0
 idna==3.10
 isodate==0.7.2
 itsdangerous==2.2.0
