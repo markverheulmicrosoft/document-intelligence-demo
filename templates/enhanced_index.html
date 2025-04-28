@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Enhanced Document Analyzer</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            padding: 15px;
+        }
+
+        #top-controls {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding-bottom: 15px;
+            border-bottom: 1px solid #eee;
+        }
+
+        #main-content {
+            display: flex;
+            gap: 20px;
+            width: 100%;
+        }
+
+        #results-area {
+            width: 40%;
+            overflow-y: auto;
+            max-height: 85vh;
+        }
+
+        #pdf-viewer-area {
+            width: 60%;
+            border: 1px solid #ccc;
+            position: relative;
+            /* Needed for absolute positioning of highlights */
+        }
+
+        #pdfCanvas {
+            width: 100%;
+        }
+
+        /* Text layer styles */
+        .textLayer {
+            position: absolute;
+            left: 0;
+            top: 0;
+            right: 0;
+            bottom: 0;
+            overflow: hidden;
+            opacity: 0.2;
+            line-height: 1.0;
+        }
+
+        .textLayer>span {
+            color: transparent;
+            position: absolute;
+            white-space: pre;
+            cursor: text;
+            transform-origin: 0% 0%;
+        }
+
+        .textLayer .highlight {
+            margin: -1px;
+            padding: 1px;
+            background-color: rgb(180, 0, 170);
+            border-radius: 4px;
+        }
+
+        .textLayer .highlight.begin {
+            border-radius: 4px 0px 0px 4px;
+        }
+
+        .textLayer .highlight.end {
+            border-radius: 0px 4px 4px 0px;
+        }
+
+        .textLayer .highlight.middle {
+            border-radius: 0px;
+        }
+
+        .textLayer .highlight.selected {
+            background-color: rgb(0, 100, 0);
+        }
+
+        .highlight {
+            position: absolute;
+            border: 2px solid red;
+            background-color: rgba(255, 0, 0, 0.2);
+            pointer-events: none;
+            /* Allows interaction with underlying canvas */
+        }
+
+        /* Styles for formatted results */
+        .result-document {
+            border: 1px solid #ddd;
+            padding: 10px;
+            margin-bottom: 10px;
+            border-radius: 5px;
+            background-color: #f9f9f9;
+        }
+
+        .result-field {
+            margin-bottom: 8px;
+            padding-left: 15px;
+            border-left: 3px solid #007bff;
+        }
+
+        .field-name {
+            font-weight: bold;
+        }
+
+        .field-value {
+            color: #333;
+        }
+
+        .field-confidence {
+            font-size: 0.9em;
+            color: #666;
+        }
+
+        .field-location {
+            font-size: 0.8em;
+            color: #888;
+            cursor: pointer;
+            text-decoration: underline;
+        }
+
+        .field-location:hover {
+            color: #0056b3;
+        }
+
+        /* New styles for enhanced document viewer */
+        .page-nav {
+            margin-top: 10px;
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .text-element {
+            cursor: pointer;
+            padding: 2px 5px;
+            border-radius: 3px;
+            margin-bottom: 2px;
+        }
+
+        .text-element:hover {
+            background-color: #e9f5ff;
+        }
+
+        .extracted-image {
+            margin: 10px 0;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            background-color: #f5f5f5;
+        }
+
+        .image-description {
+            font-style: italic;
+            color: #555;
+        }
+
+        .search-container {
+            margin: 10px 0;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            background-color: #f9f9f9;
+        }
+
+        #searchInput {
+            width: 100%;
+            padding: 8px;
+            margin-bottom: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+
+        .tab-container {
+            display: flex;
+            margin-bottom: 15px;
+            border-bottom: 1px solid #ddd;
+        }
+
+        .tab {
+            padding: 10px 15px;
+            cursor: pointer;
+            background-color: #f1f1f1;
+            border: 1px solid #ddd;
+            border-bottom: none;
+            margin-right: 5px;
+            border-radius: 5px 5px 0 0;
+        }
+
+        .tab.active {
+            background-color: white;
+            border-bottom: 1px solid white;
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+    </style>
+    <!-- PDF.js library from CDN -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script>
+        // Required configuration for PDF.js worker
+        pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js`;
+    </script>
+</head>
+
+<body>
+
+    <div id="top-controls">
+        <input type="file" id="fileInput" accept=".pdf" style="display: none;"> <!-- Hide the actual input -->
+        <button id="selectFileButton">Change PDF</button> <!-- Button to trigger file input -->
+        <span id="currentFileName">Loading default: input.pdf</span> <!-- Show current file -->
+        <button id="analyzeButton">Analyze Document</button>
+        <span id="status">Loading default PDF...</span>
+    </div>
+
+    <div id="main-content">
+        <div id="results-area">
+            <div class="tab-container">
+                <div class="tab active" data-tab="extractedData">Extracted Data</div>
+                <div class="tab" data-tab="textElements">Text Elements</div>
+                <div class="tab" data-tab="extractedImages">Extracted Images</div>
+                <div class="tab" data-tab="search">Search</div>
+            </div>
+
+            <div id="extractedData" class="tab-content active">
+                <h3>Document Analysis</h3>
+                <div id="extractedDataContainer">No data yet. Upload a PDF and click "Analyze Document".</div>
+            </div>
+
+            <div id="textElements" class="tab-content">
+                <h3>Text Elements by Page</h3>
+                <div id="textElementsContainer">No text elements extracted yet.</div>
+            </div>
+
+            <div id="extractedImages" class="tab-content">
+                <h3>Extracted Images</h3>
+                <div id="extractedImagesContainer">No images extracted yet.</div>
+            </div>
+
+            <div id="search" class="tab-content">
+                <h3>Search Document</h3>
+                <div class="search-container">
+                    <input type="text" id="searchInput" placeholder="Search for text in the document...">
+                    <button id="searchButton">Search</button>
+                    <div id="searchResults">Enter a search term above to find text in the document.</div>
+                </div>
+            </div>
+        </div>
+
+        <div id="pdf-viewer-area">
+            <h3>PDF Preview</h3>
+            <div id="pdfViewerContainer" style="position: relative;">
+                <canvas id="pdfCanvas"></canvas>
+                <div id="textLayer" class="textLayer"></div>
+                <div id="highlightLayer"></div>
+            </div>
+            <div class="page-nav">
+                <button id="prevPageButton" disabled>Previous Page</button>
+                <span>Page <span id="pageNumDisplay">-</span> of <span id="totalPagesDisplay">-</span></span>
+                <button id="nextPageButton" disabled>Next Page</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/js/enhanced_script.js"></script>
+</body>
+
+</html>

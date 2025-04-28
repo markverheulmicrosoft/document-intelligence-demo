@@ -1,23 +1,35 @@
 import os
 import sys
-from fastapi import FastAPI, UploadFile, File, HTTPException, Depends
+from fastapi import FastAPI, UploadFile, File, HTTPException, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import HTMLResponse, FileResponse
 from azure.core.credentials import AzureKeyCredential
 from azure.ai.documentintelligence import DocumentIntelligenceClient
 from dotenv import load_dotenv
 import uvicorn
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 import tempfile
 from pydantic import BaseModel
 import base64
 from openai import AzureOpenAI
 import io
 from PIL import Image
+from fastapi.templating import Jinja2Templates
 
 # Load environment variables from .env file
 load_dotenv(override=True)
 
+# Define base directories
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+STATIC_DIR = os.path.join(BASE_DIR, "static")
+TEMPLATES_DIR = os.path.join(BASE_DIR, "templates")
+
 app = FastAPI(title="Document Intelligence API")
+
+# Set up templates and static files directories
+templates = Jinja2Templates(directory=TEMPLATES_DIR)
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 # Add CORS middleware to allow cross-origin requests
 app.add_middleware(
@@ -41,6 +53,28 @@ class AnalysisResponse(BaseModel):
 
 class ImageAnalysisResponse(BaseModel):
     description: str
+
+class TextElement(BaseModel):
+    text: str
+    polygon: List[float]
+    line_index: int = None
+    word_index: int = None
+
+class ExtractedImage(BaseModel):
+    image_index: int
+    page_number: int
+    bounding_box: List[float]
+    description: str = None
+
+class PageData(BaseModel):
+    page_number: int
+    lines: List[TextElement] = []
+    words: List[TextElement] = []
+    images: List[ExtractedImage] = []
+
+class EnhancedDocumentAnalysis(BaseModel):
+    pages: Dict[int, PageData]
+    extracted_images: List[ExtractedImage] = []
 
 def get_azure_credentials():
     endpoint = os.environ.get("AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT")
@@ -137,9 +171,122 @@ async def analyze_image_with_gpt4_vision(image_path, prompt="Describe this image
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error from Azure OpenAI: {str(e)}")
 
-@app.get("/")
-async def root():
-    return {"message": "Welcome to Document Intelligence API"}
+async def extract_and_analyze_images(result, temp_dir):
+    """
+    Extract images from the document analysis result and analyze them with GPT-4.1 Vision
+    
+    Args:
+        result: The document analysis result from Azure Document Intelligence
+        temp_dir: A temporary directory to save extracted images
+        
+    Returns:
+        A list of ExtractedImage objects
+    """
+    extracted_images = []
+    image_index = 0
+    
+    # Check if there are any images in the document
+    if hasattr(result, 'images') and result.images:
+        for img in result.images:
+            page_number = img.page_number if hasattr(img, 'page_number') else 1
+            
+            # Create a filename for the image
+            img_file_path = os.path.join(temp_dir, f"image_{image_index}_{page_number}.png")
+            
+            # If the image has binary content, save it to a file
+            if hasattr(img, 'content') and img.content:
+                with open(img_file_path, "wb") as img_file:
+                    img_file.write(img.content)
+                
+                # Analyze the image with GPT-4.1 Vision
+                try:
+                    prompt = "Describe what's in this image, including any visible text, charts, or graphics."
+                    description = await analyze_image_with_gpt4_vision(img_file_path, prompt)
+                except Exception as e:
+                    description = f"Failed to analyze image: {str(e)}"
+                
+                # Get the bounding box (polygon) if available
+                bounding_box = []
+                if hasattr(img, 'bounding_regions') and img.bounding_regions:
+                    for region in img.bounding_regions:
+                        if hasattr(region, 'polygon'):
+                            bounding_box = region.polygon
+                            break
+                
+                # Create an ExtractedImage object
+                extracted_image = ExtractedImage(
+                    image_index=image_index,
+                    page_number=page_number,
+                    bounding_box=bounding_box,
+                    description=description
+                )
+                
+                extracted_images.append(extracted_image)
+                image_index += 1
+    
+    return extracted_images
+
+def organize_content_by_page(result, extracted_images=None):
+    """
+    Organize document content by page number
+    
+    Args:
+        result: The document analysis result from Azure Document Intelligence
+        extracted_images: List of extracted images with their analysis
+        
+    Returns:
+        A dictionary mapping page numbers to PageData objects
+    """
+    pages_dict = {}
+    
+    # First, extract text elements and organize by page
+    for page in result.pages:
+        page_number = page.page_number
+        
+        # Create a new PageData object if it doesn't exist
+        if page_number not in pages_dict:
+            pages_dict[page_number] = PageData(page_number=page_number)
+        
+        # Add lines
+        if hasattr(page, 'lines') and page.lines:
+            for idx, line in enumerate(page.lines):
+                text_element = TextElement(
+                    text=line.content,
+                    polygon=line.polygon,
+                    line_index=idx
+                )
+                pages_dict[page_number].lines.append(text_element)
+        
+        # Add words
+        if hasattr(page, 'words') and page.words:
+            for idx, word in enumerate(page.words):
+                text_element = TextElement(
+                    text=word.content,
+                    polygon=word.polygon,
+                    word_index=idx
+                )
+                pages_dict[page_number].words.append(text_element)
+    
+    # If there are extracted images, add them to the respective pages
+    if extracted_images:
+        for image in extracted_images:
+            page_number = image.page_number
+            
+            # Create a new PageData object if it doesn't exist
+            if page_number not in pages_dict:
+                pages_dict[page_number] = PageData(page_number=page_number)
+            
+            # Add the image to the page
+            pages_dict[page_number].images.append(image)
+    
+    return pages_dict
+
+@app.get("/", response_class=HTMLResponse)
+async def root(request: Request):
+    """
+    Redirect to the enhanced UI by default
+    """
+    return templates.TemplateResponse("enhanced_index.html", {"request": request})
 
 @app.post("/analyze-pdf", response_model=AnalysisResponse)
 async def analyze_pdf(file: UploadFile = File(...)):
@@ -235,7 +382,7 @@ async def analyze_stock_image(prompt: str = "Describe this stock chart in detail
     """
     try:
         # Path to the stock image
-        stock_image_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "msft_stock.png")
+        stock_image_path = os.path.join(STATIC_DIR, "images", "msft_stock.png")
         
         if not os.path.exists(stock_image_path):
             raise HTTPException(status_code=404, detail="Stock image not found")
@@ -249,6 +396,84 @@ async def analyze_stock_image(prompt: str = "Describe this stock chart in detail
             
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
+
+@app.post("/enhanced-document-analysis", response_model=EnhancedDocumentAnalysis)
+async def enhanced_document_analysis(file: UploadFile = File(...)):
+    """
+    Enhanced document analysis endpoint that processes a PDF document and returns:
+    - Text with coordinates organized by page
+    - Extracted images with their analysis
+    
+    Args:
+        file: The uploaded PDF file
+        
+    Returns:
+        A structured response with all document information
+    """
+    if not file.filename.lower().endswith('.pdf'):
+        raise HTTPException(status_code=400, detail="Only PDF files are supported")
+
+    try:
+        # Get Azure credentials
+        endpoint, key = get_azure_credentials()
+
+        # Create a temporary directory for images
+        with tempfile.TemporaryDirectory() as temp_dir:
+            # Save the uploaded file to a temporary location
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as temp_file:
+                temp_file.write(await file.read())
+                temp_file_path = temp_file.name
+
+            try:
+                # Process the document
+                result = analyze_document(endpoint, key, temp_file_path)
+                
+                # Extract and analyze images
+                extracted_images = await extract_and_analyze_images(result, temp_dir)
+                
+                # Organize content by page
+                pages_dict = organize_content_by_page(result, extracted_images)
+                
+                # Create the enhanced response
+                response = EnhancedDocumentAnalysis(
+                    pages=pages_dict,
+                    extracted_images=extracted_images
+                )
+                
+                return response
+
+            finally:
+                # Clean up the temporary file
+                if os.path.exists(temp_file_path):
+                    os.remove(temp_file_path)
+
+    except ValueError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
+
+# UI Routes
+
+@app.get("/ui", response_class=HTMLResponse)
+async def serve_ui(request: Request):
+    """
+    Serve the main UI page
+    """
+    return templates.TemplateResponse("index.html", {"request": request})
+
+@app.get("/enhanced-ui", response_class=HTMLResponse)
+async def serve_enhanced_ui(request: Request):
+    """
+    Serve the enhanced UI page with PDF.js integration and advanced features
+    """
+    return templates.TemplateResponse("enhanced_index.html", {"request": request})
+
+@app.get("/files/{file_path:path}")
+async def serve_static_file(file_path: str):
+    """
+    Serve static files like JS, CSS, images, and PDFs
+    """
+    return FileResponse(file_path)
 
 if __name__ == "__main__":
     uvicorn.run("api:app", host="0.0.0.0", port=8000, reload=True)
