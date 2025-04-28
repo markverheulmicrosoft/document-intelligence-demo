@@ -780,12 +780,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     statusDiv.textContent = 'Fetching default PDF...';
     try {
         // Fetch the local PDF file from the static directory
-        const response = await fetch('/static/input.pdf');
+        const response = await fetch('/static/fund_onboarding.pdf');
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
         const pdfBlob = await response.blob();
-        loadAndRenderPdf(pdfBlob, 'input.pdf');
+        loadAndRenderPdf(pdfBlob, 'fund_onboarding.pdf');
     } catch (error) {
         console.error('Error fetching default PDF:', error);
         statusDiv.textContent = 'Error loading default PDF. Please select one manually.';

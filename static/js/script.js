@@ -245,15 +245,15 @@ async function loadAndRenderPdf(fileObject, fileName) {
 
 // --- Default PDF Loading ----
 document.addEventListener('DOMContentLoaded', async () => {
-    statusDiv.textContent = 'Fetching default PDF (input.pdf)...';
+    statusDiv.textContent = 'Fetching default PDF (fund_onboarding.pdf)...';
     try {
-        // Fetch the local PDF file relative to index.html
-        const response = await fetch('input.pdf');
+        // Fetch the local PDF file from the static directory
+        const response = await fetch('/static/fund_onboarding.pdf');
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
         const pdfBlob = await response.blob();
-        loadAndRenderPdf(pdfBlob, 'input.pdf'); // Load and render the fetched blob
+        loadAndRenderPdf(pdfBlob, 'fund_onboarding.pdf'); // Load and render the fetched blob
     } catch (error) {
         console.error('Error fetching default PDF:', error);
         statusDiv.textContent = 'Error loading default PDF. Please select one manually.';

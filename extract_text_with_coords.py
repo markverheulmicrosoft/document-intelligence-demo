@@ -53,7 +53,8 @@ def extract_words_and_coords(result):
     return output
 
 def main():
-    input_file = "input.pdf"
+    # input_file = "input.pdf"
+    input_file = "fund_onboarding.pdf"
     if not os.path.isfile(input_file):
         print(f"Error: PDF file '{input_file}' not found.")
         sys.exit(1)
